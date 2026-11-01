@@ -308,16 +308,17 @@ async def upload_models():
 
 
 @app.post("/api/remove-small-models")
-async def remove_small_models():
+async def remove_small_models(threshold: float = 7.0):
     """
-    Kayıtlı uzak sağlayıcılardan ve 9Router veritabanından 7B'den küçük modelleri kaldırır.
+    Kayıtlı uzak sağlayıcılardan ve 9Router veritabanından, kullanıcının belirlediği B değerinden
+    (threshold) düşük parametreli modelleri kaldırır.
     """
     import re
     def is_small(model):
         m = (model or "").lower()
         match = re.search(r'(\d+(?:\.\d+)?)\s*b', m)
         if match:
-            return float(match.group(1)) < 7
+            return float(match.group(1)) < threshold
         return False
 
     if not os.path.exists(CONFIG_FILE):

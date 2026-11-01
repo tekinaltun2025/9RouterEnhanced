@@ -55,9 +55,13 @@
                         <button onclick="resetConfig()" class="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-lg font-medium transition" data-i18n="btnReset" title="Son kayıtlı güncel listeyi tazeler">
                             Yenile
                         </button>
-                        <button onclick="removeSmallModels()" class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg font-medium transition" title="7B'den küçük modelleri mevcut listeden kaldırır">
-                            7B'den Küçükleri Kaldır
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <input type="number" id="small-threshold" value="7" min="0" step="0.1" class="w-16 px-2 py-2 rounded-lg bg-gray-900 border border-gray-700 text-white text-sm">
+                            <span class="text-gray-300 font-semibold">B</span>
+                            <button onclick="removeSmallModels()" class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg font-medium transition" title="Belirtilen B değerinden düşük parametreli modelleri mevcut listeden kaldırır">
+                                Küçük modelleri kaldır
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -407,12 +411,13 @@
             const dict = i18n[currentLang];
             const box = document.getElementById('status-box');
             const text = document.getElementById('status-text');
+            const thresholdInput = document.getElementById('small-threshold');
+            const threshold = parseFloat(thresholdInput ? thresholdInput.value : '7') || 7;
             box.classList.remove('hidden');
-            text.textContent = currentLang === 'tr' ? '7B altı modeller kaldırılıyor...' : 'Removing models under 7B...';
+            text.textContent = currentLang === 'tr' ? (threshold + 'B altı modeller kaldırılıyor...') : ('Removing models under ' + threshold + 'B...');
             try {
-                let res = await fetch('/api/remove-small-models', { method: 'POST' });
+                let res = await fetch('/api/remove-small-models?threshold=' + encodeURIComponent(threshold), { method: 'POST' });
                 let data = await res.json();
-                // Reload models
                 await loadModels();
                 showNotification(dict.notifSuccess);
             } catch (e) {
