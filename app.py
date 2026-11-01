@@ -131,6 +131,31 @@ def find_9router_db() -> str:
             return str(c)
     return ""
 
+# Sağlayıcı -> API anahtarı alma sayfası (kullanıcı kendi hesabından üretir)
+PROVIDER_KEY_URLS = {
+    "huggingface": "https://huggingface.co/settings/tokens",
+    "openrouter": "https://openrouter.ai/keys",
+    "deepinfra": "https://deepinfra.com/dashboard/account/api-keys",
+    "sambanova": "https://cloud.sambanova.ai/app/settings/api-keys",
+    "together": "https://api.together.xyz/settings/api-keys",
+    "mistral": "https://console.mistral.ai/api-keys/",
+    "groq": "https://console.groq.com/keys",
+    "gemini": "https://aistudio.google.com/apikey",
+    "google": "https://aistudio.google.com/apikey",
+    "cloudflare": "https://dash.cloudflare.com/profile/api-tokens",
+    "nous": "https://console.nousresearch.com/login",
+    "nvidia": "https://build.nvidia.com",
+    "ollama": "",
+}
+
+def key_url_for(provider):
+    """Provider ad/endpoint'inden API anahtarı alma linkini bulur."""
+    text = ((provider or {}).get("name", "") + " " + (provider or {}).get("endpoint", "")).lower()
+    for kw, url in PROVIDER_KEY_URLS.items():
+        if kw in text:
+            return url
+    return ""
+
 def is_remote_endpoint(endpoint: str) -> bool:
     """
     Yerel ağ adreslerini (localhost, 127.0.0.1, 0.0.0.0, yerel IP'ler) kesinlikle filtreler.
@@ -271,6 +296,9 @@ async def upload_models():
             prov_name = prov.get("name")
             prov_endpoint = prov.get("endpoint")
             alias = prov_name.lower().replace(" ", "-").replace("/", "-")
+            # Gerçek API anahtarı (kullanıcı listeye eklerken girdi); yoksa yer tutucu
+            real_key = (prov.get("api_key") or "").strip()
+            key_value = real_key if real_key else "***"
             
             # 1. providerConnections tablosuna kaydet veya güncelle
             cursor.execute("""
@@ -284,7 +312,7 @@ async def upload_models():
                 None, 
                 1, 
                 1, 
-                json.dumps({"apiKey": "sk-remote-free", "endpoint": prov_endpoint, "testStatus": "active"})
+                json.dumps({"apiKey": key_value, "endpoint": prov_endpoint, "testStatus": "active"})
             ))
             
             # 2. kv tablosuna (scope='customModels', key=model, value=json) modelleri ekle
@@ -535,7 +563,7 @@ async def scan_web():
     for res in scanned_results:
         if not is_remote_endpoint(res["endpoint"]):
             continue
-        
+        res["keyUrl"] = key_url_for(res)
         filtered_models = [m for m in res.get("free_models", []) if m.lower() not in existing_models]
         if filtered_models:
             res["free_models"] = filtered_models
@@ -547,6 +575,7 @@ class AddProviderRequest(BaseModel):
     name: str
     endpoint: str
     free_models: List[str]
+    api_key: str = ""
 
 @app.post("/api/add-provider")
 async def add_provider(item: AddProviderRequest):
@@ -574,7 +603,8 @@ async def add_provider(item: AddProviderRequest):
         providers.append({
             "name": item.name,
             "endpoint": item.endpoint,
-            "free_models": item.free_models
+            "free_models": item.free_models,
+            "api_key": item.api_key or ""
         })
         
     data["providers"] = providers

@@ -162,6 +162,8 @@
                 accessibleLabel: "Erişilebilir",
                 cloudVerified: "Bulut Doğrulanmış",
                 addToList: "+ Listeye Ekle",
+                getKey: "Get API Key",
+                apiKeyPlaceholder: "API anahtarı (opsiyonel)",
                 scanStep1: "Adım 1/3: Açık kaynaklı ve genel bulut LLM registry endpoint'leri analiz ediliyor...",
                 scanStep2: "Adım 2/3: Yerel ağ adresleri (localhost, 127.0.0.1) güvenlik filtreleriyle eleniyor...",
                 scanStep3: "Adım 3/3: Ücretsiz bulut modelleri ve endpoint'ler doğrulanıyor...",
@@ -195,6 +197,8 @@
                 accessibleLabel: "Accessible",
                 cloudVerified: "Cloud Verified",
                 addToList: "+ Add to List",
+                getKey: "Get API Key",
+                apiKeyPlaceholder: "API key (optional)",
                 scanStep1: "Step 1/3: Analyzing open source and general cloud LLM registry endpoints...",
                 scanStep2: "Step 2/3: Filtering local network addresses (localhost, 127.0.0.1) with security filters...",
                 scanStep3: "Step 3/3: Verifying free cloud models and endpoints...",
@@ -498,6 +502,12 @@
                                 <span class="text-xs bg-cyan-900 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-700">${dict.cloudVerified}</span>
                             </h3>
                             <p class="text-xs text-cyan-400 mb-2">${prov.endpoint}</p>
+                            <div class="flex items-center gap-2 mb-2 flex-wrap">
+                                ${prov.keyUrl ? `<a href="${prov.keyUrl}" target="_blank" rel="noopener" class="text-xs text-amber-400 hover:text-amber-300 underline">${dict.getKey}</a>` : ''}
+                                <input type="text" id="key-input-${index}" placeholder="${dict.apiKeyPlaceholder}"
+                                       class="flex-1 min-w-[180px] bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-cyan-500 outline-none"
+                                       autocomplete="off" spellcheck="false">
+                            </div>
                             <div class="flex flex-col gap-1">
                                 ${modelsHtml}
                             </div>
@@ -515,6 +525,9 @@
         async function addProvider(prov, index) {
             const dict = i18n[currentLang];
             const btn = document.getElementById(`add-btn-${index}`);
+            // Kullanıcının girdiği API anahtarını al
+            const keyInput = document.getElementById(`key-input-${index}`);
+            const apiKey = keyInput ? (keyInput.value || "").trim() : "";
             // 7B'den küçük modeller için checkbox işareti kontrol et: varsayılan seçili değil; seçili olanlar eklensin
             const checkboxes = document.querySelectorAll(`.small-model-check[data-prov="${index}"]`);
             const selectedSmallModels = [];
@@ -539,7 +552,7 @@
                 let res = await fetch('/api/add-provider', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(filteredProv)
+                    body: JSON.stringify({...filteredProv, api_key: apiKey})
                 });
                 let data = await res.json();
                 showNotification(dict.notifSuccess);
