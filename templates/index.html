@@ -444,7 +444,7 @@
                     const size = modelSizeLabel(model);
                     const small = size !== null && size < 7;
                     const checkbox = small
-                        ? `<input type="checkbox" class="small-model-check mr-2 align-middle" data-prov="${index}" data-model="${model}" checked>`
+                        ? `<input type="checkbox" class="small-model-check mr-2 align-middle" data-prov="${index}" data-model="${model}">`
                         : '';
                     modelsHtml += `<div class="flex items-center text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded border border-gray-700 mb-1">
                         ${checkbox}<span>${model}${small ? ' <span class="text-amber-400">( < 7B )</span>' : ''}</span>
@@ -475,14 +475,22 @@
         async function addProvider(prov, index) {
             const dict = i18n[currentLang];
             const btn = document.getElementById(`add-btn-${index}`);
-            // 7B'den küçük modeller için checkbox işareti kontrol et
+            // 7B'den küçük modeller için checkbox işareti kontrol et: varsayılan seçili değil; seçili olanlar eklensin
             const checkboxes = document.querySelectorAll(`.small-model-check[data-prov="${index}"]`);
-            const uncheckedModels = [];
+            const selectedSmallModels = [];
             checkboxes.forEach(cb => {
-                if (!cb.checked) uncheckedModels.push(cb.getAttribute('data-model'));
+                if (cb.checked) selectedSmallModels.push(cb.getAttribute('data-model'));
             });
             const filteredProv = JSON.parse(JSON.stringify(prov));
-            filteredProv.free_models = (filteredProv.free_models || []).filter(m => !uncheckedModels.includes(m));
+            filteredProv.free_models = (filteredProv.free_models || []).filter(m => {
+                const sizeMatch = m.toLowerCase().match(/(\d+(?:\.\d+)?)\s*b/);
+                const size = sizeMatch ? parseFloat(sizeMatch[1]) : null;
+                const small = size !== null && size < 7;
+                if (small) {
+                    return selectedSmallModels.includes(m);
+                }
+                return true;
+            });
             if (filteredProv.free_models.length === 0) {
                 showNotification(dict.notifError, 'error');
                 return;
