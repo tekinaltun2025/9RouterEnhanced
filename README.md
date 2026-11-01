@@ -1,76 +1,76 @@
-# 🚀 9Router Enhanced: Ücretsiz Uzak LLM Yönetim, Test ve Keşif Aracı
+# 🚀 9Router Enhanced: Free Remote LLM Management, Testing & Discovery Tool
 
-**9Router'ın en önemli eksikliklerini gideren ve onu çok daha güçlü hale getiren masaüstü uygulaması.**
+**The desktop application that fixes 9Router's biggest limitations and makes it much more powerful.**
 
-> 🌟 **En Önemli Geliştirme:** 9Router'ın varsayılan olarak listelemediği veya keşfedemediği **onlarca yeni ücretsiz bulut LLM sağlayıcısını ve modelini** otomatik olarak bulur, test eder ve 9Router veritabanına kalıcı olarak ekler.
-
----
-
-## 📸 Ekran Görüntüleri
-
-### 🖥️ Ana Arayüz (Türkçe)
-![Ana Arayüz](screenshots/main-tr.png)
-
-### 🌐 İngilizce Desteği
-![İngilizce Arayüz](screenshots/main-en.png)
-
-### 🔍 Derin Web Tarama (Keşif)
-![Tarama Sonuçları](screenshots/scan-results.png)
-
-### 🗄️ 9Router Veritabanı Entegrasyonu
-![DB Senkronizasyonu](screenshots/db-sync.png)
+> 🌟 **Most Important Feature:** Automatically finds, tests, and permanently adds **dozens of new free cloud LLM providers and models** that 9Router cannot list or discover by default, directly into the 9Router database.
 
 ---
 
-## ✨ Özellikler
+## 📸 Screenshots
 
-- 🔍 **Derinlemesine Web Keşfi:** Açık kaynak platformları (HuggingFace, OpenRouter vb.) tarar, yeni ücretsiz LLM'leri bulur.
-- 🚫 **Güvenlik Filtresi:** Yalnızca gerçek bulut/uzak API'leri kabul eder. `localhost`, `127.0.0.1` gibi yerel adresleri kesinlikle filtreler.
-- ✅ **Otomatik Test:** Bulunan her modelin gerçekten erişilebilir olduğunu test eder, çalışmayanları eler.
-- 🔄 **9Router Senkronizasyonu:** Modelleri 9Router'ın anladığı formatta (customModels scope, global scope, providerStrategies) veritabanına yazar.
-- 🧠 **Akıllı Kombo Yönetimi:** Bulunan tüm yeni modelleri "Tüm Modeller Sırayla" gibi kombo listelerine otomatik ekler.
-- 🔁 **Mükerrer Önleme:** Zaten kayıtlı olan modelleri tekrar önermez.
-- 🌍 **TR/EN Dili Desteği:** Tam çeviri altyapısı ile Türkçe/İngilizce tek tıkla değiştirilebilir.
+### 🖥️ Main Interface (Turkish)
+![Main Interface Turkish](screenshots/main-tr.png)
+
+### 🌐 English Support
+![Main Interface English](screenshots/main-en.png)
+
+### 🔍 Deep Web Discovery (Scan)
+![Scan Results](screenshots/scan-results.png)
+
+### 🗄️ 9Router Database Integration
+![DB Sync](screenshots/db-sync.png)
 
 ---
 
-## 🛠️ Kurulum
+## ✨ Features
 
-### Gereksinimler
+- 🔍 **Deep Web Discovery:** Scans open-source platforms (HuggingFace, OpenRouter, etc.) to find new free LLMs.
+- 🚫 **Security Filter:** Strictly accepts only real cloud/remote APIs. `localhost`, `127.0.0.1` and other local addresses are strictly filtered out.
+- ✅ **Automated Testing:** Sends test requests to every found model to verify real accessibility, filtering out broken ones.
+- 🔄 **9Router Synchronization:** Writes models into the 9Router SQLite database in the format it understands (customModels scope, global scope, providerStrategies).
+- 🧠 **Smart Combo Management:** Automatically adds all newly found models to combo lists like "All Models in Order" (TumModellerSirayla).
+- 🔁 **Duplicate Prevention:** Does not suggest models that are already registered.
+- 🌍 **TR/EN Language Support:** Full i18n translation infrastructure allowing instant switching between Turkish and English.
+
+---
+
+## 🛠️ Installation
+
+### Requirements
 - Python 3.10+
-- conda veya virtualenv (önerilen)
+- conda or virtualenv (recommended)
 
-### Adımlar
+### Steps
 
 ```bash
-# 1. Repoyu klonlayın
+# 1. Clone the repository
 git clone https://github.com/tekinaltun2025/9RouterEnhanced.git
 cd 9RouterEnhanced
 
-# 2. Bağımlılıkları yükleyin
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Uygulamayı başlatın
+# 3. Start the application
 python app.py
 ```
 
-Tarayıcınızda `http://127.0.0.1:8099` adresini açın.
+Open your browser at `http://127.0.0.1:8099`.
 
 ---
 
-## 📦 Sistem Servisi (Opsiyonel)
+## 📦 System Service (Optional)
 
-Uygulamayı arka planda sürekli çalıştırmak için systemd user servisi kullanılabilir:
+You can run the application in the background as a systemd user service:
 
 ```bash
-# Servis dosyasını kopyalayın
+# Copy the service file
 cp router-tool.service ~/.config/systemd/user/
 
-# Servisi etkinleştirin ve başlatın
+# Enable and start the service
 systemctl --user daemon-reload
 systemctl --user enable --now router-tool.service
 
-# Durumunu kontrol edin
+# Check status
 systemctl --user status router-tool.service
 ```
 
@@ -78,38 +78,38 @@ systemctl --user status router-tool.service
 
 ## 🗂️ API Endpoints
 
-| Endpoint | Method | Açıklama |
-|----------|--------|----------|
-| `/api/models` | GET | 9Router'daki kayıtlı sağlayıcıları ve modelleri getirir |
-| `/api/test-models` | POST | Tüm modellerin erişilebilirliğini test eder |
-| `/api/upload` | POST | Bulunan modelleri 9Router veritabanına yükler |
-| `/api/reset` | POST | Son kayıtlı konfigürasyonu geri yükler |
-| `/api/scan-web` | GET | Derin web taraması yapar ve yeni sağlayıcıları bulur |
-| `/api/add-provider` | POST | Belirli bir sağlayıcıyı manuel olarak ekler |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/models` | GET | Retrieves registered providers and models from 9Router |
+| `/api/test-models` | POST | Tests accessibility of all models |
+| `/api/upload` | POST | Uploads found models into 9Router SQLite database |
+| `/api/reset` | POST | Restores the last saved configuration |
+| `/api/scan-web` | GET | Performs deep web scan to find new providers |
+| `/api/add-provider` | POST | Manually adds a specific provider to the pool |
 
 ---
 
-## 📁 Proje Yapısı
+## 📁 Project Structure
 
 ```
 9RouterEnhanced/
-├── app.py                 # FastAPI ana uygulama
+├── app.py                 # FastAPI main application
 ├── templates/
 │   └── index.html         # Jinja2 server-side UI (TR/EN)
-├── requirements.txt       # Python bağımlılıkları
-├── router-tool.service    # systemd user servisi
-├── icon.svg               # Uygulama ikonu
-└── README.md              # Bu dosya
+├── requirements.txt       # Python dependencies
+├── router-tool.service    # systemd user service
+├── icon.svg               # Application icon
+└── README.md              # This file
 ```
 
 ---
 
-## 🤝 Katkıda Bulunma
+## 🤝 Contributing
 
-Bu araç, 9Router topluluğu için geliştirilmiştir. Pull request'ler ve issue'lar memnuniyetle karşılanır.
+This tool is developed for the 9Router community. Pull requests and issues are welcome.
 
 ---
 
-## 📄 Lisans
+## 📄 License
 
 MIT License
