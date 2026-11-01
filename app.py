@@ -5,7 +5,7 @@ import shutil
 import asyncio
 import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 from pydantic import BaseModel
@@ -49,6 +49,49 @@ def init_config():
 
 init_config()
 
+
+async def probe_model(client: httpx.AsyncClient, endpoint: str, model: str) -> str:
+    """
+    Tek bir modelin erişilebilirliğini canlı olarak test eder.
+    OpenAI uyumlu endpoint'lerde chat/completions denenir; Hugging Face inference endpoint'lerinde model varlığı kontrol edilir.
+    Dönen değer: 'working' veya 'not-working'.
+    """
+    lower_ep = endpoint.lower()
+
+    # Hugging Face inference endpoint'i için özel yol
+    if "huggingface.co" in lower_ep and "/models" in lower_ep:
+        try:
+            r = await client.get(f"{endpoint.rstrip('/')}/{model}", timeout=8.0)
+        except Exception:
+            return "not-working"
+        if r.status_code in (200, 401, 403, 429, 503):
+            return "working"
+        return "not-working"
+
+    # OpenAI uyumlu endpoint'ler
+    url = endpoint.rstrip('/') + "/chat/completions"
+    payload = {"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
+    try:
+        r = await client.post(url, json=payload, timeout=12.0)
+    except Exception:
+        return "not-working"
+    code = r.status_code
+    if code in (200, 401, 403, 429):
+        return "working"
+    if code == 404:
+        text = r.text.lower()
+        if "model" in text and any(k in text for k in ["not found", "not exist", "unknown", "invalid"]):
+            return "not-working"
+        return "working"
+    if code == 400:
+        text = r.text.lower()
+        if "model" in text:
+            return "not-working"
+        return "working"
+    if code >= 500:
+        return "not-working"
+    return "not-working"
+
 def is_remote_endpoint(endpoint: str) -> bool:
     """
     Yerel ağ adreslerini (localhost, 127.0.0.1, 0.0.0.0, yerel IP'ler) kesinlikle filtreler.
@@ -90,47 +133,61 @@ async def get_models():
 @app.post("/api/test-models")
 async def test_models():
     """
-    Tüm kayıtlı uzak sağlayıcıları ve modelleri canlı olarak test eder.
-    Her modelin erişilebilirliğini kontrol eder ve ulaşılamayanları
-    geçici olarak işaretleyebilir veya kaldırabilir.
+    Tüm kayıtlı uzak sağlayıcıları ve modellerini canlı olarak, model bazında test eder.
+    Her modelin test durumu Server-Sent Events (SSE) ile anlık olarak istemciye iletilir.
+    'working' / 'not-working' durumları config dosyasına kaydedilir.
     """
     if not os.path.exists(CONFIG_FILE):
         raise HTTPException(status_code=404, detail="Konfigürasyon dosyası bulunamadı.")
-        
+
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
-        
-    updated_providers = []
-    
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for prov in data.get("providers", []):
-            endpoint = prov.get("endpoint", "")
-            if not is_remote_endpoint(endpoint):
-                continue
-                
-            valid_models = []
-            for model in prov.get("free_models", []):
+
+    async def event_stream():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            providers = data.get("providers", [])
+            for p_index, prov in enumerate(providers):
+                endpoint = prov.get("endpoint", "")
+                models = prov.get("free_models", [])
+                status_map = prov.get("model_status", {})
+                if not is_remote_endpoint(endpoint):
+                    for m_index, model in enumerate(models):
+                        status_map[model] = "not-working"
+                        yield f'data: {json.dumps({"type":"status","p_index":p_index,"m_index":m_index,"model":model,"status":"not-working"}, ensure_ascii=False)}\n\n'
+                    prov["model_status"] = status_map
+                    prov["status"] = "not-working"
+                    yield f'data: {json.dumps({"type":"provider_done","p_index":p_index,"status":"not-working"}, ensure_ascii=False)}\n\n'
+                    continue
+
+                # Provider genel erişilebilirlik kontrolü (tek sefer)
+                provider_reachable = False
                 try:
-                    response = await client.get(endpoint.rstrip('/') + "/models")
-                    if response.status_code in [200, 401, 403]:
-                        valid_models.append(model)
+                    r = await client.get(endpoint.rstrip('/') + "/models", timeout=6.0)
+                    if r.status_code in (200, 401, 403, 429):
+                        provider_reachable = True
                 except Exception:
-                    if any(k in endpoint.lower() for k in ["groq", "mistral", "googleapis", "huggingface", "openrouter", "cohere", "deepinfra"]):
-                        valid_models.append(model)
-            
-            if valid_models:
-                prov["free_models"] = valid_models
-                prov["status"] = "working"
-                updated_providers.append(prov)
-            else:
-                prov["status"] = "not-working"
-                updated_providers.append(prov)
-                
-    data["providers"] = updated_providers
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-        
-    return {"status": "success", "message": "Test tamamlandı.", "providers": updated_providers}
+                    provider_reachable = any(k in endpoint.lower() for k in ["groq", "mistral", "googleapis", "huggingface", "openrouter", "cohere", "deepinfra", "together", "sambanova"])
+
+                for m_index, model in enumerate(models):
+                    # "Test ediliyor" durumunu anlık bildir
+                    yield f'data: {json.dumps({"type":"status","p_index":p_index,"m_index":m_index,"model":model,"status":"testing"}, ensure_ascii=False)}\n\n'
+                    await asyncio.sleep(0.05)
+
+                    st = await probe_model(client, endpoint, model) if provider_reachable else "not-working"
+                    status_map[model] = st
+                    yield f'data: {json.dumps({"type":"status","p_index":p_index,"m_index":m_index,"model":model,"status":st}, ensure_ascii=False)}\n\n'
+
+                prov["model_status"] = status_map
+                prov["status"] = "working" if any(v == "working" for v in status_map.values()) else "not-working"
+                yield f'data: {json.dumps({"type":"provider_done","p_index":p_index,"status":prov["status"]}, ensure_ascii=False)}\n\n'
+
+        # Config dosyasına kaydet
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
+        yield f'data: {json.dumps({"type":"done"}, ensure_ascii=False)}\n\n'
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @app.post("/api/upload")
 async def upload_models():
@@ -147,10 +204,17 @@ async def upload_models():
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
         
-    # Sadece çalışan (status: working) provider ve modelleri yükle
+    # Sadece testten geçen çalışan modelleri ve provider'ları filtrele
     working_providers = []
     for prov in data.get("providers", []):
-        if prov.get("status") == "working":
+        m_status = prov.get("model_status", {})
+        working_models = [m for m in prov.get("free_models", []) if m_status.get(m) == "working"]
+        # Eğer hiç model test edilmediyse (ilk yükleme) tüm free_models kabul edilir, aksi takdirde sadece working olanlar
+        if not m_status:
+            working_models = prov.get("free_models", [])
+            
+        if working_models:
+            prov["free_models"] = working_models
             working_providers.append(prov)
             
     data["providers"] = working_providers

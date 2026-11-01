@@ -307,42 +307,59 @@
             const text = document.getElementById('status-text');
             box.classList.remove('hidden');
             text.textContent = dict.statusTest;
-            
+
             const labels = document.querySelectorAll('.status-label');
             labels.forEach(l => {
                 l.textContent = currentLang === 'tr' ? 'Test ediliyor...' : 'Testing...';
-                l.className = 'text-xs text-amber-400 status-label';
+                l.className = 'text-xs text-amber-400 status-label animate-pulse';
             });
 
             try {
-                let res = await fetch('/api/test-models', { method: 'POST' });
-                let data = await res.json();
-                
-                // Update status labels based on provider status
-                data.providers.forEach((prov, pIndex) => {
-                    prov.free_models.forEach((model, mIndex) => {
-                        const el = document.getElementById(`model-${pIndex}-${mIndex}`);
-                        if (el) {
-                            const label = el.querySelector('.status-label');
-                            if (label) {
-                                if (prov.status === 'working') {
-                                    label.textContent = currentLang === 'tr' ? 'Çalışıyor' : 'Working';
-                                    label.className = 'text-xs text-emerald-400 status-label';
-                                } else {
-                                    label.textContent = currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
-                                    label.className = 'text-xs text-rose-500 status-label';
+                const response = await fetch('/api/test-models', { method: 'POST' });
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const msg = JSON.parse(line.substring(6));
+                                if (msg.type === 'status') {
+                                    const el = document.getElementById(`model-${msg.p_index}-${msg.m_index}`);
+                                    if (el) {
+                                        const label = el.querySelector('.status-label');
+                                        if (label) {
+                                            if (msg.status === 'testing') {
+                                                label.textContent = currentLang === 'tr' ? 'test ediliyor' : 'testing';
+                                                label.className = 'text-xs text-amber-400 status-label animate-pulse';
+                                            } else if (msg.status === 'working') {
+                                                label.textContent = currentLang === 'tr' ? 'Çalışıyor' : 'Working';
+                                                label.className = 'text-xs text-emerald-400 status-label';
+                                            } else {
+                                                label.textContent = currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
+                                                label.className = 'text-xs text-gray-500 status-label';
+                                            }
+                                        }
+                                    }
+                                } else if (msg.type === 'done') {
+                                    showNotification(dict.notifSuccess);
                                 }
-                            }
+                            } catch (err) {}
                         }
-                    });
-                });
-                
-                showNotification(dict.notifSuccess);
+                    }
+                }
             } catch (e) {
                 showNotification(dict.notifError, 'error');
                 labels.forEach(l => {
-                    l.textContent = currentLang === 'tr' ? 'Hata' : 'Error';
-                    l.className = 'text-xs text-rose-500 status-label';
+                    l.textContent = currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
+                    l.className = 'text-xs text-gray-500 status-label';
                 });
             } finally {
                 box.classList.add('hidden');
