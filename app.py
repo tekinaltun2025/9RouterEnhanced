@@ -306,6 +306,75 @@ async def upload_models():
         
     return {"status": "success", "message": "Aktif modeller 9router SQLite veritabanına (customModels scope) başarıyla ve mükerrer kayıt kontrolüyle işlendi!", "backup": backup_path}
 
+
+@app.post("/api/remove-small-models")
+async def remove_small_models():
+    """
+    Kayıtlı uzak sağlayıcılardan ve 9Router veritabanından 7B'den küçük modelleri kaldırır.
+    """
+    import re
+    def is_small(model):
+        m = (model or "").lower()
+        match = re.search(r'(\d+(?:\.\d+)?)\s*b', m)
+        if match:
+            return float(match.group(1)) < 7
+        return False
+
+    if not os.path.exists(CONFIG_FILE):
+        raise HTTPException(status_code=404, detail="Konfigürasyon dosyası bulunamadı.")
+
+    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    removed = []
+    for prov in data.get("providers", []):
+        before = list(prov.get("free_models", []))
+        after = [m for m in before if not is_small(m)]
+        removed.extend([m for m in before if is_small(m)])
+        prov["free_models"] = after
+        ms = prov.get("model_status", {})
+        for m in removed:
+            ms.pop(m, None)
+        prov["model_status"] = ms
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+    # 9Router DB temizliği
+    db_path = "/home/tekinaltun/.9router/data/db/data.sqlite"
+    if os.path.exists(db_path):
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key FROM kv WHERE scope='customModels'")
+        keys = [r[0] for r in cursor.fetchall()]
+        for k in keys:
+            parts = k.split('|')
+            if len(parts) >= 2 and is_small(parts[1]):
+                cursor.execute("DELETE FROM kv WHERE scope='customModels' AND key=?", (k,))
+        cursor.execute("SELECT key, value FROM kv WHERE scope='global'")
+        for key, val in cursor.fetchall():
+            try:
+                models = json.loads(val)
+            except Exception:
+                continue
+            new_models = [m for m in models if not is_small((m.split('/')[-1] if '/' in m else m))]
+            if new_models != models:
+                cursor.execute("UPDATE kv SET value=? WHERE scope='global' AND key=?", (json.dumps(new_models), key))
+        cursor.execute("SELECT name, models FROM combos")
+        for name, val in cursor.fetchall():
+            try:
+                models = json.loads(val)
+            except Exception:
+                continue
+            new_models = [m for m in models if not is_small((m.split('/')[-1] if '/' in m else m))]
+            if new_models != models:
+                cursor.execute("UPDATE combos SET models=?, updatedAt=datetime('now') WHERE name=?", (json.dumps(new_models), name))
+        conn.commit()
+        conn.close()
+
+    return {"status": "success", "removed": removed, "count": len(removed)}
+
 @app.post("/api/reset")
 async def reset_config():
     """

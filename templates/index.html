@@ -55,6 +55,9 @@
                         <button onclick="resetConfig()" class="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-lg font-medium transition" data-i18n="btnReset" title="Son kayıtlı güncel listeyi tazeler">
                             Yenile
                         </button>
+                        <button onclick="removeSmallModels()" class="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg font-medium transition" title="7B'den küçük modelleri mevcut listeden kaldırır">
+                            7B'den Küçükleri Kaldır
+                        </button>
                     </div>
                 </div>
 
@@ -383,6 +386,24 @@
             }
         }
 
+        async function removeSmallModels() {
+            const dict = i18n[currentLang];
+            const box = document.getElementById('status-box');
+            const text = document.getElementById('status-text');
+            box.classList.remove('hidden');
+            text.textContent = currentLang === 'tr' ? '7B altı modeller kaldırılıyor...' : 'Removing models under 7B...';
+            try {
+                let res = await fetch('/api/remove-small-models', { method: 'POST' });
+                let data = await res.json();
+                // Reload models
+                await loadModels();
+                showNotification(dict.notifSuccess);
+            } catch (e) {
+                showNotification(dict.notifError, 'error');
+            } finally {
+                box.classList.add('hidden');
+            }
+        }
         async function resetConfig() {
             const dict = i18n[currentLang];
             const box = document.getElementById('status-box');
