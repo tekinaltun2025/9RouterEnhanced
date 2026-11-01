@@ -543,6 +543,12 @@
                 });
                 let data = await res.json();
                 showNotification(dict.notifSuccess);
+                // Mevcut (kayıtlı) modeller listesini otomatik yenile
+                try {
+                    let mres = await fetch('/api/models');
+                    let mdata = await mres.json();
+                    renderProviders(mdata.providers);
+                } catch (e) {}
                 if (btn) {
                     btn.textContent = currentLang === 'tr' ? 'Eklendi' : 'Added';
                     btn.disabled = true;
