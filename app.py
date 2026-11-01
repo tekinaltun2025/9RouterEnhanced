@@ -154,6 +154,9 @@ async def upload_models():
             working_providers.append(prov)
             
     data["providers"] = working_providers
+    # Çalışmayan provider'ları config'den sil (kullanıcı isteği: Yükle diyince sadece çalışıyor olanlar eklensin)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
         
     db_path = "/home/tekinaltun/.9router/data/db/data.sqlite"
     if os.path.exists(db_path):
