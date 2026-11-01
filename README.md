@@ -44,11 +44,34 @@ cd 9RouterEnhanced
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Start the application
-python app.py
+# 3. Start the application (cross-platform)
+python launcher.py
+# or: python app.py
 ```
 
 Open your browser at `http://127.0.0.1:8099`.
+
+#### Windows
+```bat
+run.bat
+```
+or `python launcher.py`.
+
+#### Linux / macOS
+```bash
+./run.sh
+# or
+python3 launcher.py
+```
+
+#### 9Router database path (optional)
+If 9Router is installed in a non-standard location, set the `NINEROUTER_DB` environment variable to the full path of `data.sqlite` before starting.
+
+#### Desktop shortcut (optional)
+```bash
+python install_desktop.py
+```
+Creates a Start Menu / Applications / Desktop shortcut depending on the OS.
 
 ---
 
@@ -87,12 +110,16 @@ systemctl --user status router-tool.service
 
 ```
 9RouterEnhanced/
-├── app.py                 # FastAPI main application
+├── app.py                 # FastAPI main application (cross-platform paths)
+├── launcher.py            # Cross-platform launcher (Windows/Linux/macOS)
+├── run.bat                # Windows launcher
+├── run.sh                 # Linux/macOS launcher
+├── install_desktop.py     # Cross-platform desktop shortcut installer
 ├── templates/
 │   └── index.html         # Jinja2 server-side UI (TR/EN)
 ├── requirements.txt       # Python dependencies
-├── router-tool.service    # systemd user service
-├── icon.svg               # Application icon
+├── router-tool.service    # systemd user service (Linux only, optional)
+├── icon.png / icon.svg    # Application icons
 └── README.md              # This file
 ```
 

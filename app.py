@@ -3,7 +3,9 @@ import json
 import yaml
 import shutil
 import asyncio
+import platform
 import httpx
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -13,13 +15,16 @@ from typing import List, Dict, Any, Optional
 
 app = FastAPI(title="9Router Uzak LLM Model Yönetim Aracı")
 
-# Şablon dizini ayarı
-templates = Jinja2Templates(directory="/home/tekinaltun/projects/router_tool/templates")
+# Uygulama kök dizini (çapraz platform: dosya yolları app.py konumuna göre çözülür)
+BASE_DIR = Path(__file__).resolve().parent
 
-# Konfigürasyon dosya yolu
-CONFIG_DIR = "/home/tekinaltun/projects/router_tool/config"
-os.makedirs(CONFIG_DIR, exist_ok=True)
-CONFIG_FILE = os.path.join(CONFIG_DIR, "9router_config.json")
+# Şablon dizini ayarı
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+# Konfigürasyon dosya yolu (env ile override edilebilir)
+CONFIG_DIR = Path(os.environ.get("ROUTER_TOOL_CONFIG_DIR", str(BASE_DIR / "config")))
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_FILE = str(CONFIG_DIR / "9router_config.json")
 
 # Varsayılan örnek konfigürasyon (Sadece uzak/bulut sağlayıcılar)
 DEFAULT_CONFIG = {
@@ -91,6 +96,40 @@ async def probe_model(client: httpx.AsyncClient, endpoint: str, model: str) -> s
     if code >= 500:
         return "not-working"
     return "not-working"
+
+
+def find_9router_db() -> str:
+    """
+    9Router SQLite veritabanının yolunu çapraz platform olarak bulur.
+    Öncelik: NINEROUTER_DB env değişkeni -> bilinen OS'a özgü konumlar -> None.
+    """
+    env_path = os.environ.get("NINEROUTER_DB")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    home = Path.home()
+    system = platform.system()
+    candidates = []
+
+    if system == "Windows":
+        appdata = os.environ.get("APPDATA")
+        localappdata = os.environ.get("LOCALAPPDATA")
+        if appdata:
+            candidates.append(Path(appdata) / "9router" / "data" / "db" / "data.sqlite")
+        if localappdata:
+            candidates.append(Path(localappdata) / "9router" / "data" / "db" / "data.sqlite")
+        candidates.append(home / ".9router" / "data" / "db" / "data.sqlite")
+    elif system == "Darwin":
+        candidates.append(home / "Library" / "Application Support" / "9router" / "data" / "db" / "data.sqlite")
+        candidates.append(home / ".9router" / "data" / "db" / "data.sqlite")
+    else:  # Linux ve diğer Unix
+        candidates.append(home / ".9router" / "data" / "db" / "data.sqlite")
+        candidates.append(home / ".config" / "9router" / "data" / "db" / "data.sqlite")
+
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return ""
 
 def is_remote_endpoint(endpoint: str) -> bool:
     """
@@ -222,8 +261,8 @@ async def upload_models():
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
         
-    db_path = "/home/tekinaltun/.9router/data/db/data.sqlite"
-    if os.path.exists(db_path):
+    db_path = find_9router_db()
+    if db_path and os.path.exists(db_path):
         import sqlite3
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -342,8 +381,8 @@ async def remove_small_models(threshold: float = 7.0):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
     # 9Router DB temizliği
-    db_path = "/home/tekinaltun/.9router/data/db/data.sqlite"
-    if os.path.exists(db_path):
+    db_path = find_9router_db()
+    if db_path and os.path.exists(db_path):
         import sqlite3
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -546,4 +585,7 @@ async def add_provider(item: AddProviderRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8099)
+    import os
+    host = os.environ.get("ROUTER_TOOL_HOST", "127.0.0.1")
+    port = int(os.environ.get("ROUTER_TOOL_PORT", "8099"))
+    uvicorn.run(app, host=host, port=port)
