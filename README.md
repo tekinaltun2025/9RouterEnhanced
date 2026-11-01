@@ -14,12 +14,6 @@
 ### 🌐 English Support
 ![Main Interface English](screenshots/main-en.png)
 
-### 🔍 Deep Web Discovery (Scan)
-![Scan Results](screenshots/scan-results.png)
-
-### 🗄️ 9Router Database Integration
-![DB Sync](screenshots/db-sync.png)
-
 ---
 
 ## ✨ Features
