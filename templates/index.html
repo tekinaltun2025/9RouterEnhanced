@@ -423,6 +423,13 @@
             }
         }
 
+        function modelSizeLabel(model) {
+            const m = model.toLowerCase();
+            let match = m.match(/(\d+(?:\.\d+)?)\s*b/);
+            if (match) return parseFloat(match[1]);
+            return null;
+        }
+
         function renderScannedProviders(providers) {
             const dict = i18n[currentLang];
             const container = document.getElementById('scanned-container');
@@ -433,12 +440,19 @@
             let html = '';
             providers.forEach((prov, index) => {
                 let modelsHtml = '';
-                prov.free_models.forEach(model => {
-                    modelsHtml += `<span class="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded border border-gray-700">${model}</span>`;
+                prov.free_models.forEach((model, mIndex) => {
+                    const size = modelSizeLabel(model);
+                    const small = size !== null && size < 7;
+                    const checkbox = small
+                        ? `<input type="checkbox" class="small-model-check mr-2 align-middle" data-prov="${index}" data-model="${model}" checked>`
+                        : '';
+                    modelsHtml += `<div class="flex items-center text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded border border-gray-700 mb-1">
+                        ${checkbox}<span>${model}${small ? ' <span class="text-amber-400">( < 7B )</span>' : ''}</span>
+                    </div>`;
                 });
                 html += `
                     <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 shadow flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div>
+                        <div class="flex-1">
                             <h3 class="text-lg font-bold text-white flex items-center space-x-2">
                                 <span>${prov.name}</span>
                                 <span class="text-xs bg-cyan-900 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-700">${dict.cloudVerified}</span>
@@ -461,11 +475,23 @@
         async function addProvider(prov, index) {
             const dict = i18n[currentLang];
             const btn = document.getElementById(`add-btn-${index}`);
+            // 7B'den küçük modeller için checkbox işareti kontrol et
+            const checkboxes = document.querySelectorAll(`.small-model-check[data-prov="${index}"]`);
+            const uncheckedModels = [];
+            checkboxes.forEach(cb => {
+                if (!cb.checked) uncheckedModels.push(cb.getAttribute('data-model'));
+            });
+            const filteredProv = JSON.parse(JSON.stringify(prov));
+            filteredProv.free_models = (filteredProv.free_models || []).filter(m => !uncheckedModels.includes(m));
+            if (filteredProv.free_models.length === 0) {
+                showNotification(dict.notifError, 'error');
+                return;
+            }
             try {
                 let res = await fetch('/api/add-provider', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(prov)
+                    body: JSON.stringify(filteredProv)
                 });
                 let data = await res.json();
                 showNotification(dict.notifSuccess);
