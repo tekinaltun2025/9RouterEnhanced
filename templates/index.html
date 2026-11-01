@@ -91,7 +91,7 @@
                                         <span class="text-emerald-400 font-bold">✓</span>
                                         <span>{{ model }}</span>
                                     </span>
-                                    <span class="text-xs text-gray-500 status-label" data-i18n="accessibleLabel">Erişilebilir</span>
+                                    <span class="text-xs text-gray-500 status-label" data-i18n="accessibleLabel" data-status="accessible">Erişilebilir</span>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -209,13 +209,25 @@
             applyLanguage();
         }
 
+        function statusTextFor(status) {
+            const dict = i18n[currentLang];
+            if (status === 'testing') return currentLang === 'tr' ? 'test ediliyor' : 'testing';
+            if (status === 'working') return currentLang === 'tr' ? 'Çalışıyor' : 'Working';
+            if (status === 'not-working') return currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
+            return dict.accessibleLabel;
+        }
         function applyLanguage() {
             const dict = i18n[currentLang];
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
-                if (dict[key]) {
+                if (dict[key] && !el.classList.contains('status-label')) {
                     el.textContent = dict[key];
                 }
+            });
+            // Dynamic status labels must not be wiped by language switch
+            document.querySelectorAll('.status-label').forEach(el => {
+                const status = el.getAttribute('data-status') || 'accessible';
+                el.textContent = statusTextFor(status);
             });
             document.title = dict.pageTitle;
         }
@@ -261,7 +273,7 @@
                                 <span class="text-emerald-400 font-bold">✓</span>
                                 <span>${model}</span>
                             </span>
-                            <span class="text-xs text-gray-500 status-label" data-i18n="accessibleLabel">${dict.accessibleLabel}</span>
+                            <span class="text-xs text-gray-500 status-label" data-i18n="accessibleLabel" data-status="accessible">${dict.accessibleLabel}</span>
                         </div>
                     `;
                 });
@@ -313,8 +325,9 @@
 
             const labels = document.querySelectorAll('.status-label');
             labels.forEach(l => {
-                l.textContent = currentLang === 'tr' ? 'Test ediliyor...' : 'Testing...';
+                l.textContent = currentLang === 'tr' ? 'test ediliyor' : 'testing';
                 l.className = 'text-xs text-amber-400 status-label animate-pulse';
+                l.setAttribute('data-status', 'testing');
             });
 
             try {
@@ -342,12 +355,15 @@
                                             if (msg.status === 'testing') {
                                                 label.textContent = currentLang === 'tr' ? 'test ediliyor' : 'testing';
                                                 label.className = 'text-xs text-amber-400 status-label animate-pulse';
+                                                label.setAttribute('data-status', 'testing');
                                             } else if (msg.status === 'working') {
                                                 label.textContent = currentLang === 'tr' ? 'Çalışıyor' : 'Working';
                                                 label.className = 'text-xs text-emerald-400 status-label';
+                                                label.setAttribute('data-status', 'working');
                                             } else {
                                                 label.textContent = currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
                                                 label.className = 'text-xs text-gray-500 status-label';
+                                                label.setAttribute('data-status', 'not-working');
                                             }
                                         }
                                     }
@@ -363,6 +379,7 @@
                 labels.forEach(l => {
                     l.textContent = currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
                     l.className = 'text-xs text-gray-500 status-label';
+                    l.setAttribute('data-status', 'not-working');
                 });
             } finally {
                 box.classList.add('hidden');
