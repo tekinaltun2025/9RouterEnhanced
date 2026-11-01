@@ -90,8 +90,9 @@ async def get_models():
 @app.post("/api/test-models")
 async def test_models():
     """
-    Listelenen tüm uzak/ücretsiz modellere erişim testi (ping / basit istek) gönderir.
-    Sorunsuz yanıt verenler kalır, hata verenler veya zaman aşımına uğrayanlar silinir.
+    Tüm kayıtlı uzak sağlayıcıları ve modelleri canlı olarak test eder.
+    Her modelin erişilebilirliğini kontrol eder ve ulaşılamayanları
+    geçici olarak işaretleyebilir veya kaldırabilir.
     """
     if not os.path.exists(CONFIG_FILE):
         raise HTTPException(status_code=404, detail="Konfigürasyon dosyası bulunamadı.")
@@ -114,19 +115,22 @@ async def test_models():
                     if response.status_code in [200, 401, 403]:
                         valid_models.append(model)
                 except Exception:
-                    # Bulut servisleri aktif kabul edilir
                     if any(k in endpoint.lower() for k in ["groq", "mistral", "googleapis", "huggingface", "openrouter", "cohere", "deepinfra"]):
                         valid_models.append(model)
             
             if valid_models:
                 prov["free_models"] = valid_models
+                prov["status"] = "working"
+                updated_providers.append(prov)
+            else:
+                prov["status"] = "not-working"
                 updated_providers.append(prov)
                 
     data["providers"] = updated_providers
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
         
-    return {"status": "success", "message": "Test tamamlandı. Ulaşılamayan modeller temizlendi.", "providers": updated_providers}
+    return {"status": "success", "message": "Test tamamlandı.", "providers": updated_providers}
 
 @app.post("/api/upload")
 async def upload_models():
@@ -142,6 +146,14 @@ async def upload_models():
     
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
+        
+    # Sadece çalışan (status: working) provider ve modelleri yükle
+    working_providers = []
+    for prov in data.get("providers", []):
+        if prov.get("status") == "working":
+            working_providers.append(prov)
+            
+    data["providers"] = working_providers
         
     db_path = "/home/tekinaltun/.9router/data/db/data.sqlite"
     if os.path.exists(db_path):

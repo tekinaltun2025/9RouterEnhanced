@@ -70,7 +70,7 @@
                         <div class="text-center py-8 text-gray-500" data-i18n="emptyList">Henüz listelenen veya aktif model bulunamadı.</div>
                     {% else %}
                         {% for prov in providers %}
-                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 shadow">
+                        <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 shadow" id="prov-{{ loop.index0 }}">
                             <div class="flex justify-between items-center mb-3">
                                 <div>
                                     <h3 class="text-lg font-bold text-white flex items-center space-x-2">
@@ -83,12 +83,12 @@
                             </div>
                             <div class="pl-4 border-l-2 border-cyan-500 space-y-1">
                                 {% for model in prov.free_models %}
-                                <div class="flex items-center justify-between py-1 text-sm text-gray-300">
+                                <div class="flex items-center justify-between py-1 text-sm text-gray-300" id="model-{{ loop.parent.loop.index0 }}-{{ loop.index0 }}">
                                     <span class="flex items-center space-x-2">
                                         <span class="text-emerald-400 font-bold">✓</span>
                                         <span>{{ model }}</span>
                                     </span>
-                                    <span class="text-xs text-gray-500" data-i18n="accessibleLabel">Erişilebilir</span>
+                                    <span class="text-xs text-gray-500 status-label" data-i18n="accessibleLabel">Erişilebilir</span>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -249,21 +249,21 @@
                 return;
             }
             let html = '';
-            providers.forEach(prov => {
+            providers.forEach((prov, pIndex) => {
                 let modelsHtml = '';
-                prov.free_models.forEach(model => {
+                prov.free_models.forEach((model, mIndex) => {
                     modelsHtml += `
-                        <div class="flex items-center justify-between py-1 text-sm text-gray-300">
+                        <div class="flex items-center justify-between py-1 text-sm text-gray-300" id="model-${pIndex}-${mIndex}">
                             <span class="flex items-center space-x-2">
                                 <span class="text-emerald-400 font-bold">✓</span>
                                 <span>${model}</span>
                             </span>
-                            <span class="text-xs text-gray-500">${dict.accessibleLabel}</span>
+                            <span class="text-xs text-gray-500 status-label" data-i18n="accessibleLabel">${dict.accessibleLabel}</span>
                         </div>
                     `;
                 });
                 html += `
-                    <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 shadow">
+                    <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 shadow" id="prov-${pIndex}">
                         <div class="flex justify-between items-center mb-3">
                             <div>
                                 <h3 class="text-lg font-bold text-white flex items-center space-x-2">
@@ -307,13 +307,43 @@
             const text = document.getElementById('status-text');
             box.classList.remove('hidden');
             text.textContent = dict.statusTest;
+            
+            const labels = document.querySelectorAll('.status-label');
+            labels.forEach(l => {
+                l.textContent = currentLang === 'tr' ? 'Test ediliyor...' : 'Testing...';
+                l.className = 'text-xs text-amber-400 status-label';
+            });
+
             try {
                 let res = await fetch('/api/test-models', { method: 'POST' });
                 let data = await res.json();
-                renderProviders(data.providers);
+                
+                // Update status labels based on provider status
+                data.providers.forEach((prov, pIndex) => {
+                    prov.free_models.forEach((model, mIndex) => {
+                        const el = document.getElementById(`model-${pIndex}-${mIndex}`);
+                        if (el) {
+                            const label = el.querySelector('.status-label');
+                            if (label) {
+                                if (prov.status === 'working') {
+                                    label.textContent = currentLang === 'tr' ? 'Çalışıyor' : 'Working';
+                                    label.className = 'text-xs text-emerald-400 status-label';
+                                } else {
+                                    label.textContent = currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
+                                    label.className = 'text-xs text-rose-500 status-label';
+                                }
+                            }
+                        }
+                    });
+                });
+                
                 showNotification(dict.notifSuccess);
             } catch (e) {
                 showNotification(dict.notifError, 'error');
+                labels.forEach(l => {
+                    l.textContent = currentLang === 'tr' ? 'Hata' : 'Error';
+                    l.className = 'text-xs text-rose-500 status-label';
+                });
             } finally {
                 box.classList.add('hidden');
             }
