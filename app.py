@@ -273,26 +273,33 @@ async def upload_models():
                 cursor.execute("INSERT OR REPLACE INTO kv (scope, key, value) VALUES ('global', ?, ?)", 
                                (alias, json.dumps(model_list)))
                 
-        # 5. TumModellerSirayla combosunu güncelle
-        cursor.execute("SELECT models FROM combos WHERE name='TumModellerSirayla'")
-        combo_row = cursor.fetchone()
-        if combo_row:
-            current_combo_models = json.loads(combo_row[0])
-            cursor.execute("SELECT key FROM kv WHERE scope='customModels'")
-            custom_keys = [r[0] for r in cursor.fetchall()]
-            
-            new_entries = []
-            for k in custom_keys:
-                parts = k.split('|')
-                if len(parts) >= 2:
-                    entry = f"{parts[0]}/{parts[1]}"
-                    if entry not in current_combo_models:
-                        new_entries.append(entry)
-            
-            if new_entries:
-                updated_combo = current_combo_models + new_entries
-                cursor.execute("UPDATE combos SET models = ?, updatedAt = datetime('now') WHERE name = 'TumModellerSirayla'", 
-                               (json.dumps(updated_combo),))
+        # 5. TumModellerSirayla ve AllmodelsTurn combosunu hem TR hem EN için kontrol et / oluştur / güncelle
+        cursor.execute("SELECT key FROM kv WHERE scope='customModels'")
+        custom_keys = [r[0] for r in cursor.fetchall()]
+        all_custom_entries = []
+        for k in custom_keys:
+            parts = k.split('|')
+            if len(parts) >= 2:
+                entry = f"{parts[0]}/{parts[1]}"
+                if entry not in all_custom_entries:
+                    all_custom_entries.append(entry)
+
+        for combo_name in ['TumModellerSirayla', 'AllmodelsTurn']:
+            cursor.execute("SELECT models FROM combos WHERE name=?", (combo_name,))
+            combo_row = cursor.fetchone()
+            if combo_row:
+                current_combo_models = json.loads(combo_row[0])
+                new_entries = [e for e in all_custom_entries if e not in current_combo_models]
+                if new_entries:
+                    updated_combo = current_combo_models + new_entries
+                    cursor.execute("UPDATE combos SET models = ?, updatedAt = datetime('now') WHERE name = ?", 
+                                   (json.dumps(updated_combo), combo_name))
+            else:
+                # Eğer combo hiç yoksa oluştur
+                cursor.execute("""
+                    INSERT INTO combos (name, models, createdAt, updatedAt)
+                    VALUES (?, ?, datetime('now'), datetime('now'))
+                """, (combo_name, json.dumps(all_custom_entries)))
 
         conn.commit()
         conn.close()
