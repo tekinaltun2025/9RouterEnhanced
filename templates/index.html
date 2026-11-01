@@ -211,7 +211,7 @@
 
         function statusTextFor(status) {
             const dict = i18n[currentLang];
-            if (status === 'testing') return currentLang === 'tr' ? 'test ediliyor' : 'testing';
+            if (status === 'testing') return currentLang === 'tr' ? 'test ediliyor...' : 'testing...';
             if (status === 'working') return currentLang === 'tr' ? 'Çalışıyor' : 'Working';
             if (status === 'not-working') return currentLang === 'tr' ? 'Çalışmıyor' : 'Not Working';
             return dict.accessibleLabel;
@@ -325,7 +325,7 @@
 
             const labels = document.querySelectorAll('.status-label');
             labels.forEach(l => {
-                l.textContent = currentLang === 'tr' ? 'test ediliyor' : 'testing';
+                l.textContent = currentLang === 'tr' ? 'test ediliyor...' : 'testing...';
                 l.className = 'text-xs text-amber-400 status-label animate-pulse';
                 l.setAttribute('data-status', 'testing');
             });
@@ -353,7 +353,7 @@
                                         const label = el.querySelector('.status-label');
                                         if (label) {
                                             if (msg.status === 'testing') {
-                                                label.textContent = currentLang === 'tr' ? 'test ediliyor' : 'testing';
+                                                label.textContent = currentLang === 'tr' ? 'test ediliyor...' : 'testing...';
                                                 label.className = 'text-xs text-amber-400 status-label animate-pulse';
                                                 label.setAttribute('data-status', 'testing');
                                             } else if (msg.status === 'working') {
