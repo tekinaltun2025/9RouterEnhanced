@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import yaml
 import shutil
 import asyncio
@@ -458,15 +459,11 @@ async def reset_config():
 @app.get("/api/scan-web")
 async def scan_web():
     """
-    Yüksek düşünce seviyeli, asenkron ve çok ayrıntılı yapay zeka/açık kaynak taraması.
-    Hugging Face Inference, OpenRouter Free Tier, DeepInfra Free Endpoints ve SambaNova Cloud
-    gibi önde gelen uzak bulut sağlayıcılarının halka açık model registry'lerini canlı tarar,
-    yerel ağ adreslerini kesinlikle eler ve doğrulanmış bulut endpoint'lerini listeler.
+    Gelişmiş internet taraması: DuckDuckGo genel web araması + mnfst/0xzr ücretsiz LLM listeleri +
+    bilinen ücretsiz sağlayıcıların model registry'leri + web'den çıkarılan aday endpoint'ler paralel
+    taranır, doğrulanır ve listelenir. Yalnızca uzak (remote) adresler kabul edilir.
     """
-    # Derinlemesine ve akıllı tarama gecikmesi (yüksek düşünce seviyesi simülasyonu)
-    await asyncio.sleep(1.0)
-
-    # Mevcut kaydedilmiş sağlayıcılardaki modelleri topla (mükerrer elemek için)
+    # Mevcut kaydedilmiş modeller (mükerrer eleme)
     existing_models = set()
     if os.path.exists(CONFIG_FILE):
         try:
@@ -478,97 +475,258 @@ async def scan_web():
         except Exception:
             pass
 
-    async with httpx.AsyncClient(timeout=12.0) as client:
-        # 1. Hugging Face Warm models
-        hf_models = []
-        try:
-            r = await client.get('https://huggingface.co/api/models', params={
-                'pipeline_tag':'text-generation','sort':'downloads','direction':'-1','limit':'20','inference':'warm'
-            })
-            if r.status_code == 200:
-                for m in r.json():
-                    mid = m.get('id')
-                    if mid:
-                        hf_models.append(mid)
-        except Exception:
-            pass
-        if not hf_models:
-            hf_models = ["meta-llama/Meta-Llama-3-8B-Instruct", "Qwen/Qwen2.5-72B-Instruct", "mistralai/Mixtral-8x7B-Instruct-v0.1"]
+    def is_llm_model(mid):
+        low = (mid or "").lower()
+        if any(bad in low for bad in ["embedding", "embed", "tts", "whisper", "rerank", "bge", "reranker", "moderation", "guard"]):
+            return False
+        return True
 
-        # 2. OpenRouter Free Tier
-        or_models = []
-        try:
-            r = await client.get('https://openrouter.ai/api/v1/models')
-            if r.status_code == 200:
-                for m in r.json().get('data',[]):
-                    if m.get('pricing',{}).get('prompt')=='0' and m.get('pricing',{}).get('completion')=='0':
-                        or_models.append(m['id'])
-        except Exception:
-            pass
-        if not or_models:
-            or_models = ["deepseek/deepseek-chat:free", "google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free"]
+    # --- 1) Genel internet araması (DuckDuckGo) ---
+    search_text = ""
+    search_urls = []
+    try:
+        def _ddg():
+            from ddgs import DDGS
+            out = []
+            queries = [
+                "free LLM API OpenAI compatible endpoint list",
+                "free AI inference API providers",
+                "free chat completion API",
+                "open source LLM hosting free tier",
+                "free LLM gateway API",
+                "list of free LLM APIs for developers",
+                "awesome free LLM APIs github",
+            ]
+            with DDGS() as ddgs:
+                for q in queries:
+                    try:
+                        for r in ddgs.text(q, max_results=8):
+                            out.append(r)
+                    except Exception:
+                        continue
+            return out
+        ddg_results = await asyncio.to_thread(_ddg)
+        for r in ddg_results:
+            search_text += " " + (r.get("title", "") + " " + r.get("body", "") + " " + r.get("href", ""))
+            if r.get("href"):
+                search_urls.append(r.get("href"))
+    except Exception:
+        pass
 
-        # 3. DeepInfra Free-ish / LLM Models
-        di_models = []
-        try:
-            r = await client.get('https://api.deepinfra.com/v1/openai/models')
-            if r.status_code == 200:
-                for m in r.json().get('data',[]):
-                    mid = m.get('id','')
-                    if any(k in mid.lower() for k in ['llama','qwen','mistral','gemma','deepseek','phi','gpt-oss','coder']):
-                        if 'embedding' not in mid.lower() and 'tts' not in mid.lower():
-                            di_models.append(mid)
-        except Exception:
-            pass
-        if not di_models:
-            di_models = ["meta-llama/Meta-Llama-3.1-8B-Instruct", "Qwen/Qwen2.5-Coder-32B-Instruct"]
-
-        # 4. SambaNova Cloud Models
-        sn_models = []
-        try:
-            r = await client.get('https://api.sambanova.ai/v1/models')
-            if r.status_code == 200:
-                for m in r.json().get('data',[]):
-                    sn_models.append(m['id'])
-        except Exception:
-            pass
-        if not sn_models:
-            sn_models = ["Meta-Llama-3.3-70B-Instruct", "DeepSeek-V3.2"]
-
-    scanned_results = [
-        {
-            "name": "HuggingFace Serverless Inference API",
-            "endpoint": "https://api-inference.huggingface.co/models",
-            "free_models": hf_models[:12]
-        },
-        {
-            "name": "OpenRouter Free Tier Gateway",
-            "endpoint": "https://openrouter.ai/api/v1",
-            "free_models": or_models[:12]
-        },
-        {
-            "name": "DeepInfra Serverless Free Endpoints",
-            "endpoint": "https://api.deepinfra.com/v1/openai",
-            "free_models": di_models[:12]
-        },
-        {
-            "name": "SambaNova Cloud Free Gateway",
-            "endpoint": "https://api.sambanova.ai/v1",
-            "free_models": sn_models[:12]
-        }
+    # --- 2) Ücretsiz LLM liste sayfalarından aday endpoint URL'leri topla ---
+    list_page_urls = [
+        "https://0xzr.github.io/freellmpool/free-llm-api-providers-list.html",
+        "https://raw.githubusercontent.com/mnfst/awesome-free-llm-apis/main/README.md",
     ]
-    
-    # Yerel ağ adresleri ve zaten mevcut listede olan modeller filtrelenir
+    web_text = search_text
+    web_candidate_urls = set(search_urls)
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as c:
+            for u in list_page_urls:
+                try:
+                    r = await c.get(u)
+                    if r.status_code == 200:
+                        web_text += " " + r.text
+                        for m in re.finditer(r"https?://[A-Za-z0-9.\-]+(?:/[A-Za-z0-9_\-./]*)?", r.text):
+                            web_candidate_urls.add(m.group(0).rstrip(".,;:)"))
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # Aday endpoint URL'leri: api içeren veya /v1 vb. ile biten
+    web_candidates = set()
+    for u in web_candidate_urls:
+        low = u.lower()
+        if any(tok in low for tok in ["/v1", "/v2", "/v4", "/v1beta", "/models", "/gateway", "/compatibility", "api."]):
+            # docs/settings/keys sayfalarını ele
+            if any(bad in low for bad in ["/docs/", "/terms", "/faq", "/guides", "/settings", "/keys", "apikey", "/account", "/app/api-keys"]):
+                continue
+            web_candidates.add(u.rstrip("/"))
+
+    # --- 3) Genişletilmiş ücretsiz sağlayıcı kataloğu ---
+    curated = [
+        {"name": "HuggingFace Serverless Inference API", "endpoint": "https://api-inference.huggingface.co/models", "models_url": "https://huggingface.co/api/models", "kind": "hf", "fallback": ["meta-llama/Meta-Llama-3-8B-Instruct", "Qwen/Qwen2.5-72B-Instruct", "mistralai/Mixtral-8x7B-Instruct-v0.1"], "keyUrl": "https://huggingface.co/settings/tokens"},
+        {"name": "HuggingFace Router", "endpoint": "https://router.huggingface.co/v1", "models_url": "https://router.huggingface.co/v1/models", "kind": "generic", "fallback": ["meta-llama/Llama-3.1-8B-Instruct", "Qwen/Qwen2.5-7B-Instruct"], "keyUrl": "https://huggingface.co/settings/tokens"},
+        {"name": "OpenRouter Free Tier Gateway", "endpoint": "https://openrouter.ai/api/v1", "models_url": "https://openrouter.ai/api/v1/models", "kind": "openrouter", "fallback": ["deepseek/deepseek-chat:free", "google/gemma-2-9b-it:free", "meta-llama/llama-3-8b-instruct:free"], "keyUrl": "https://openrouter.ai/keys"},
+        {"name": "DeepInfra Serverless Free Endpoints", "endpoint": "https://api.deepinfra.com/v1/openai", "models_url": "https://api.deepinfra.com/v1/openai/models", "kind": "deepinfra", "fallback": ["meta-llama/Meta-Llama-3.1-8B-Instruct", "Qwen/Qwen2.5-Coder-32B-Instruct"], "keyUrl": "https://deepinfra.com/dashboard/account/api-keys"},
+        {"name": "SambaNova Cloud Free Gateway", "endpoint": "https://api.sambanova.ai/v1", "models_url": "https://api.sambanova.ai/v1/models", "kind": "generic", "fallback": ["Meta-Llama-3.3-70B-Instruct", "DeepSeek-V3.2"], "keyUrl": "https://cloud.sambanova.ai/app/settings/api-keys"},
+        {"name": "Groq Cloud", "endpoint": "https://api.groq.com/openai/v1", "models_url": "https://api.groq.com/openai/v1/models", "kind": "generic", "fallback": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"], "keyUrl": "https://console.groq.com/keys"},
+        {"name": "Cerebras Inference", "endpoint": "https://api.cerebras.ai/v1", "models_url": "https://api.cerebras.ai/v1/models", "kind": "generic", "fallback": ["llama3.1-8b", "llama3.1-70b"], "keyUrl": "https://cloud.cerebras.ai/"},
+        {"name": "Together AI", "endpoint": "https://api.together.xyz/v1", "models_url": "https://api.together.xyz/v1/models", "kind": "generic", "fallback": ["meta-llama/Llama-3-70b-chat-hf", "mistralai/Mixtral-8x7B-Instruct-v0.1"], "keyUrl": "https://api.together.xyz/settings/api-keys"},
+        {"name": "Mistral AI", "endpoint": "https://api.mistral.ai/v1", "models_url": "https://api.mistral.ai/v1/models", "kind": "generic", "fallback": ["mistral-small-latest", "mistral-large-latest", "open-mistral-7b"], "keyUrl": "https://console.mistral.ai/api-keys/"},
+        {"name": "Cohere", "endpoint": "https://api.cohere.ai/v1", "models_url": "https://api.cohere.ai/compatibility/v1/models", "kind": "generic", "fallback": ["command-r", "command-r-plus", "command-light"], "keyUrl": "https://dashboard.cohere.com/api-keys"},
+        {"name": "Nebius AI Studio", "endpoint": "https://api.studio.nebius.ai/v1", "models_url": "https://api.studio.nebius.ai/v1/models", "kind": "generic", "fallback": ["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen2.5-72B-Instruct"], "keyUrl": "https://studio.nebius.ai/"},
+        {"name": "Hyperbolic", "endpoint": "https://api.hyperbolic.xyz/v1", "models_url": "https://api.hyperbolic.xyz/v1/models", "kind": "generic", "fallback": ["meta-llama/Llama-3.3-70B-Instruct", "Qwen/Qwen2.5-72B-Instruct"], "keyUrl": "https://app.hyperbolic.xyz/settings"},
+        {"name": "SiliconFlow", "endpoint": "https://api.siliconflow.cn/v1", "models_url": "https://api.siliconflow.cn/v1/models", "kind": "generic", "fallback": ["Qwen/Qwen2.5-7B-Instruct", "deepseek-ai/DeepSeek-V3"], "keyUrl": "https://cloud.siliconflow.cn/account/ak"},
+        {"name": "Fireworks AI", "endpoint": "https://api.fireworks.ai/inference/v1", "models_url": "https://api.fireworks.ai/inference/v1/models", "kind": "generic", "fallback": ["accounts/fireworks/models/llama-v3p1-70b-instruct", "accounts/fireworks/models/mixtral-8x7b-instruct"], "keyUrl": "https://fireworks.ai/account/api-keys"},
+        {"name": "Novita AI", "endpoint": "https://api.novita.ai/v3/openai", "models_url": "https://api.novita.ai/v3/openai/models", "kind": "generic", "fallback": ["meta-llama/llama-3.1-70b-instruct", "deepseek/deepseek-r1"], "keyUrl": "https://novita.ai/settings/key-management"},
+        {"name": "AI21 Studio", "endpoint": "https://api.ai21.com/studio/v1", "models_url": "https://api.ai21.com/studio/v1/models", "kind": "generic", "fallback": ["jamba-1.5-large", "jamba-1.5-mini"], "keyUrl": "https://studio.ai21.com/account/api-key"},
+        {"name": "Replicate", "endpoint": "https://api.replicate.com/v1", "models_url": "https://api.replicate.com/v1/models", "kind": "generic", "fallback": ["meta/llama-2-70b-chat", "mistralai/mistral-7b-instruct-v0.2"], "keyUrl": "https://replicate.com/account/api-tokens"},
+        {"name": "GitHub Models", "endpoint": "https://models.inference.ai.azure.com", "models_url": "https://models.inference.ai.azure.com/models", "kind": "generic", "fallback": ["gpt-4o-mini", "Meta-Llama-3.1-70B-Instruct"], "keyUrl": "https://github.com/settings/tokens"},
+        {"name": "NVIDIA NIM", "endpoint": "https://integrate.api.nvidia.com/v1", "models_url": "https://integrate.api.nvidia.com/v1/models", "kind": "generic", "fallback": ["meta/llama-3.1-70b-instruct", "nvidia/nemotron-4-340b-instruct"], "keyUrl": "https://build.nvidia.com"},
+        {"name": "Google Gemini", "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai", "models_url": "https://generativelanguage.googleapis.com/v1beta/openai/models", "kind": "generic", "fallback": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"], "keyUrl": "https://aistudio.google.com/apikey"},
+        {"name": "Cloudflare Workers AI", "endpoint": "https://api.cloudflare.com/client/v4/accounts", "models_url": None, "kind": "skip", "fallback": [], "keyUrl": "https://dash.cloudflare.com/profile/api-tokens"},
+        {"name": "Z.ai / Zhipu GLM", "endpoint": "https://open.bigmodel.cn/api/paas/v4", "models_url": "https://open.bigmodel.cn/api/paas/v4/models", "kind": "generic", "fallback": ["glm-4-flash", "glm-4-air", "glm-4-plus"], "keyUrl": "https://open.bigmodel.cn/usercenter/apikeys"},
+        {"name": "LLM7", "endpoint": "https://api.llm7.io/v1", "models_url": "https://api.llm7.io/v1/models", "kind": "generic", "fallback": ["gpt-4o-mini", "deepseek-chat"], "keyUrl": "https://llm7.io/"},
+        {"name": "Kilo Gateway", "endpoint": "https://api.kilo.ai/api/gateway", "models_url": "https://api.kilo.ai/api/gateway/models", "kind": "generic", "fallback": ["kilo-auto/free"], "keyUrl": "https://kilo.ai/"},
+        {"name": "ModelScope", "endpoint": "https://api-inference.modelscope.cn/v1", "models_url": "https://api-inference.modelscope.cn/v1/models", "kind": "generic", "fallback": ["Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3"], "keyUrl": "https://modelscope.cn/my/myaccesstoken"},
+        {"name": "Aion Labs", "endpoint": "https://api.aionlabs.ai/v1", "models_url": "https://api.aionlabs.ai/v1/models", "kind": "generic", "fallback": ["aion-labs/aion-3.0"], "keyUrl": "https://www.aionlabs.ai/app/api-keys/"},
+        {"name": "OVHcloud AI Endpoints", "endpoint": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1", "models_url": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/models", "kind": "generic", "fallback": ["Meta-Llama-3.1-8B-Instruct"], "keyUrl": "https://www.ovhcloud.com/"},
+        {"name": "GonkaBroker", "endpoint": "https://proxy.gonkabroker.com/v1", "models_url": "https://proxy.gonkabroker.com/v1/models", "kind": "generic", "fallback": ["deepseek-ai/DeepSeek-V4-Flash"], "keyUrl": "https://gonkabroker.com/"},
+        {"name": "Pollinations", "endpoint": "https://text.pollinations.ai/openai", "models_url": "https://text.pollinations.ai/models", "kind": "generic", "fallback": ["openai"], "keyUrl": "https://pollinations.ai/"},
+        {"name": "Vercel AI Gateway", "endpoint": "https://ai-gateway.vercel.sh/v1", "models_url": "https://ai-gateway.vercel.sh/v1/models", "kind": "generic", "fallback": ["openai/gpt-4o-mini"], "keyUrl": "https://vercel.com/"},
+        {"name": "Requesty", "endpoint": "https://router.requesty.ai/v1", "models_url": "https://router.requesty.ai/v1/models", "kind": "generic", "fallback": ["openai/gpt-4o-mini"], "keyUrl": "https://requesty.ai/"},
+        {"name": "Ollama Cloud", "endpoint": "https://ollama.com/api", "models_url": "https://ollama.com/api/tags", "kind": "generic", "fallback": ["llama3.1:8b"], "keyUrl": "https://ollama.com/"},
+    ]
+
+    def extract_models(data):
+        models = []
+        if isinstance(data, dict):
+            arr = data.get("data") or data.get("models") or data.get("results") or data.get("tags") or []
+        elif isinstance(data, list):
+            arr = data
+        else:
+            arr = []
+        for m in arr:
+            if isinstance(m, str):
+                models.append(m)
+            elif isinstance(m, dict):
+                mid = m.get("id") or m.get("name") or m.get("model") or m.get("slug") or m.get("digest")
+                if mid:
+                    models.append(mid)
+        return models
+
+    async def fetch_curated(client, prov):
+        kind = prov["kind"]
+        if kind == "skip" or not prov.get("models_url"):
+            return prov["fallback"] or []
+        if kind == "hf":
+            try:
+                r = await client.get(prov["models_url"], params={"pipeline_tag": "text-generation", "sort": "downloads", "direction": "-1", "limit": "20", "inference": "warm"}, timeout=8.0)
+                if r.status_code == 200:
+                    models = [m.get("id") for m in r.json() if m.get("id")]
+                    if models:
+                        return [m for m in models[:12] if is_llm_model(m)]
+            except Exception:
+                pass
+            return [m for m in (prov["fallback"] or []) if is_llm_model(m)]
+        if kind == "openrouter":
+            try:
+                r = await client.get(prov["models_url"], timeout=8.0)
+                if r.status_code == 200:
+                    models = []
+                    for m in r.json().get("data", []):
+                        if m.get("pricing", {}).get("prompt") == "0" and m.get("pricing", {}).get("completion") == "0":
+                            models.append(m["id"])
+                    if models:
+                        return [m for m in models[:12] if is_llm_model(m)]
+            except Exception:
+                pass
+            return [m for m in (prov["fallback"] or []) if is_llm_model(m)]
+        if kind == "deepinfra":
+            try:
+                r = await client.get(prov["models_url"], timeout=8.0)
+                if r.status_code == 200:
+                    models = []
+                    for m in r.json().get("data", []):
+                        mid = m.get("id", "")
+                        if any(k in mid.lower() for k in ["llama", "qwen", "mistral", "gemma", "deepseek", "phi", "gpt-oss", "coder"]):
+                            if is_llm_model(mid):
+                                models.append(mid)
+                    if models:
+                        return models[:12]
+            except Exception:
+                pass
+            return [m for m in (prov["fallback"] or []) if is_llm_model(m)]
+        # generic
+        try:
+            r = await client.get(prov["models_url"], timeout=8.0)
+            if r.status_code == 200:
+                models = extract_models(r.json())
+                models = [m for m in models if is_llm_model(m)]
+                if models:
+                    return models[:12]
+        except Exception:
+            pass
+        return [m for m in (prov["fallback"] or []) if is_llm_model(m)]
+
+    scanned_results = []
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        # Curated providers
+        for prov in curated:
+            if prov["kind"] == "skip":
+                continue
+            models = await fetch_curated(client, prov)
+            filtered = [m for m in models if m.lower() not in existing_models]
+            if filtered:
+                scanned_results.append({
+                    "name": prov["name"],
+                    "endpoint": prov["endpoint"],
+                    "free_models": filtered,
+                    "source": "curated",
+                })
+
+        # Web-discovered candidate endpoints (probe)
+        sem = asyncio.Semaphore(8)
+        async def probe_candidate(url):
+            async with sem:
+                candidates = [url]
+                if not url.lower().endswith("/models"):
+                    candidates.append(url.rstrip("/") + "/models")
+                for v in candidates:
+                    if not is_remote_endpoint(v):
+                        continue
+                    try:
+                        r = await client.get(v, timeout=6.0)
+                        if r.status_code == 200:
+                            models = extract_models(r.json())
+                            models = [m for m in models if is_llm_model(m)]
+                            if models:
+                                return v, models[:12]
+                    except Exception:
+                        continue
+                return None, None
+
+        probe_tasks = [probe_candidate(u) for u in list(web_candidates)[:40]]
+        probe_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
+        seen_endpoints = {s["endpoint"].lower() for s in scanned_results}
+        for res in probe_results:
+            if isinstance(res, Exception) or not res:
+                continue
+            url, models = res
+            if not url or not models:
+                continue
+            base = url
+            if base.lower().endswith("/models"):
+                base = base[:-len("/models")]
+            if base.lower() in seen_endpoints:
+                continue
+            if not is_remote_endpoint(base):
+                continue
+            filtered = [m for m in models if m.lower() not in existing_models]
+            if not filtered:
+                continue
+            scanned_results.append({
+                "name": "Web-Discovered Endpoint",
+                "endpoint": base,
+                "free_models": filtered,
+                "source": "web",
+            })
+            seen_endpoints.add(base.lower())
+
+    # --- 4) finalize ---
     valid_results = []
+    seen = set()
     for res in scanned_results:
         if not is_remote_endpoint(res["endpoint"]):
             continue
+        if res["endpoint"].lower() in seen:
+            continue
+        seen.add(res["endpoint"].lower())
         res["keyUrl"] = key_url_for(res)
-        filtered_models = [m for m in res.get("free_models", []) if m.lower() not in existing_models]
-        if filtered_models:
-            res["free_models"] = filtered_models
-            valid_results.append(res)
-            
+        valid_results.append(res)
+
     return {"status": "success", "providers": valid_results}
 
 class AddProviderRequest(BaseModel):
