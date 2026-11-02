@@ -540,9 +540,15 @@ async def scan_web():
         low = u.lower()
         if any(tok in low for tok in ["/v1", "/v2", "/v4", "/v1beta", "/models", "/gateway", "/compatibility", "api."]):
             # docs/settings/keys sayfalarını ele
-            if any(bad in low for bad in ["/docs/", "/terms", "/faq", "/guides", "/settings", "/keys", "apikey", "/account", "/app/api-keys"]):
+            if any(bad in low for bad in ["/docs/", "/terms", "/faq", "/guides", "/settings", "/keys", "apikey", "/account", "/app/api-keys", "github.com", "raw.githubusercontent"]):
                 continue
             web_candidates.add(u.rstrip("/"))
+
+    # Liste sayfalarından "Base URL:" / "OpenAI-compatible base URL:" desenlerini özellikle çıkar
+    for m in re.finditer(r"(?:base\s*url|openai[- ]compatible\s*(?:base\s*)?url)[^`]*`([^`]+)`", web_text, re.IGNORECASE):
+        u = m.group(1).strip().rstrip("/")
+        if u.startswith("http") and is_remote_endpoint(u):
+            web_candidates.add(u)
 
     # --- 3) Genişletilmiş ücretsiz sağlayıcı kataloğu ---
     curated = [
@@ -671,9 +677,12 @@ async def scan_web():
         sem = asyncio.Semaphore(8)
         async def probe_candidate(url):
             async with sem:
+                # Olası API yolları
                 candidates = [url]
                 if not url.lower().endswith("/models"):
                     candidates.append(url.rstrip("/") + "/models")
+                if not url.lower().endswith("/v1") and "/v1" not in url.lower():
+                    candidates.append(url.rstrip("/") + "/v1/models")
                 for v in candidates:
                     if not is_remote_endpoint(v):
                         continue
@@ -688,7 +697,7 @@ async def scan_web():
                         continue
                 return None, None
 
-        probe_tasks = [probe_candidate(u) for u in list(web_candidates)[:40]]
+        probe_tasks = [probe_candidate(u) for u in list(web_candidates)[:60]]
         probe_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
         seen_endpoints = {s["endpoint"].lower() for s in scanned_results}
         for res in probe_results:
@@ -707,8 +716,15 @@ async def scan_web():
             filtered = [m for m in models if m.lower() not in existing_models]
             if not filtered:
                 continue
+            # Daha iyi bir ad: hostname'den türet
+            try:
+                from urllib.parse import urlparse
+                host = urlparse(base).netloc or base
+                name = "Web-Discovered: " + host
+            except Exception:
+                name = "Web-Discovered Endpoint"
             scanned_results.append({
-                "name": "Web-Discovered Endpoint",
+                "name": name,
                 "endpoint": base,
                 "free_models": filtered,
                 "source": "web",
